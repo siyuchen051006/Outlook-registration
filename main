@@ -1,0 +1,156 @@
+import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import os
+import time
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import random
+import string
+from faker import Faker
+from selenium.webdriver.support.ui import Select
+import selenium.common.exceptions
+
+# initializing
+api_key = ""  # your api key of capsolver
+options = webdriver.ChromeOptions()
+options.add_experimental_option('detach', True)
+driver = webdriver.Chrome(options=options)
+driver.maximize_window()
+
+
+class Fake:
+    def __init__(self):
+        self.fake = Faker("en_US")
+
+    def get_name(self):
+        return self.fake.name()
+
+    def get_phone_number(self):
+        return self.fake.phone_number()
+
+
+def generate_random_string():
+    length = random.randint(8, 15)
+    first_character = random.choice(string.ascii_letters)
+    remaining_characters = string.ascii_letters + string.digits
+    while True:
+        result = ''.join(random.choice(remaining_characters) for _ in range(length - 1))
+        if any(char.isupper() for char in result):
+            break
+    return first_character + result
+
+
+def write_text(account, password):
+    path = ''  # input your file path
+    f = open(path, 'a+')
+    f.write(account + "---")
+    f.write(password)
+    f.close()
+
+
+def cap_solver():
+    payload = {
+        "clientKey": api_key,
+        "task": {
+            "type": "",
+            # read the api of capsolver, https://capsolver.com, 'FunCaptchaTask' if you are signing up to outlook
+            "websiteURL": "",  # captcha service provider API, 'https://iframe.arkoselabs.com' if it is funcaptcha
+            "websitePublicKey": "",
+            # captcha public key(unique), 'B7D8911C-5CC8-A9A3-35B0-554ACEE604DA' if you are signing up to outlook
+            "proxy": ''  # your proxy, format:agency agreement:IP:port:username:password
+        }
+    }
+    res = requests.post("https://api.capsolver.com/createTask", json=payload, )
+    resp = res.json()
+    task_id = resp.get("taskId")
+    if not task_id:
+        print("Failed to create task:", res.text)
+        return
+    print(f"Got taskId: {task_id} / Getting result...")
+    while True:
+        time.sleep(1)  # delay
+        payload = {"clientKey": api_key, "taskId": task_id}
+        res = requests.post("https://api.capsolver.com/getTaskResult", json=payload, )
+        resp = res.json()
+        status = resp.get("status")
+        if status == "ready":
+            return resp.get("solution", {}).get('token')
+        if status == "failed" or resp.get("errorId"):
+            print("Solve failed! response:", res.text)
+            return
+
+
+def wait_by_id(id_name, click, send_keys, content):
+    try:
+        target = WebDriverWait(driver, 30, 0.5).until(EC.presence_of_element_located((By.ID, id_name)))
+        if click:
+            time.sleep(1)
+            target.click()
+            if send_keys is True:
+                time.sleep(1)
+                target.send_keys(content)
+    except selenium.common.exceptions.TimeoutException:
+        print("Cannot find:", id_name)
+
+
+def register():
+    a = Fake()
+    name = a.get_name().split(" ")
+    first_name, last_name = name[0], name[1]
+    account = generate_random_string()
+    password = generate_random_string()
+    print('account：', account)
+    print('password：', password)
+    target_url = ''  # input the url of signing up to outlook you get
+    driver.get(target_url)
+    wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
+    wait_by_id(id_name='MemberName', click=True, send_keys=True, content=account)
+    wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
+    wait_by_id(id_name='PasswordInput', click=True, send_keys=True, content=password)
+    wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
+    wait_by_id(id_name='LastName', click=True, send_keys=True, content=last_name)
+    wait_by_id(id_name='FirstName', click=True, send_keys=True, content=first_name)
+    wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
+    wait_by_id(id_name='BirthYear', click=True, send_keys=True, content=random.randint(1990, 2005))
+    wait_by_id(id_name='BirthMonthContainer', click=True, send_keys=False, content=None)
+    birth_month_container = Select(driver.find_element(By.ID, 'BirthMonth'))
+    birth_month_container.select_by_index(random.randint(1, 12))
+    wait_by_id(id_name='BirthDayContainer', click=True, send_keys=False, content=None)
+    birth_day_container = Select(driver.find_element(By.ID, 'BirthDay'))
+    birth_day_container.select_by_index(random.randint(1, 28))
+    wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
+    WebDriverWait(driver, 100).until(EC.presence_of_element_located((By.ID, 'HipEnforcement')))
+    ifram = driver.find_element(By.ID, 'enforcementFrame')
+    driver.switch_to.frame(ifram)
+    # The above are the steps for filling in registration information, the following is the identification captcha and submission
+    token = cap_solver()
+    driver.execute_script(f'''
+        parent.postMessage(JSON.stringify({{
+            eventId: "challenge-complete",
+            payload: {{
+                sessionToken: "{token}"
+            }}
+        }}), "*");
+    ''')
+    try:
+        no = WebDriverWait(driver, 100).until(EC.presence_of_element_located((By.ID, 'declineButton')))
+        time.sleep(1)
+        no.click()
+        f = open(r'C:\Users\admin\Desktop\register\account.txt', 'a+')
+        f.write(account + '---')
+        f.write(password + '\r')
+        print('account:', account, 'has been signed up and written to the file account.txt')
+        os.system('taskkill /f /im %s' % 'chrome.exe')
+    except TimeoutError:
+        print("account:", account, "has not been signed up successfully, going to sign up the next one now")
+        os.system('taskkill /f /im %s' % 'chrome.exe')
+
+
+def main():
+    for i in range(0, int(input("please input the number of registrations"))):
+        register()
+
+
+if __name__ == '__main__':
+    main()
