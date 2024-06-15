@@ -14,18 +14,11 @@ import selenium.common.exceptions
 # initializing
 api_key = "CAP-7FF250A08C508C8EE6B127F5545E8A2C"  # your api key of capsolver
 public_key = "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA"  # publicKey of your target site
+
 options = webdriver.ChromeOptions()
 options.add_experimental_option('detach', True)
 driver = webdriver.Chrome(options=options)
 driver.maximize_window()
-
-proxies = {
-    'http': '23.247.130.11:2005',
-    'https': '23.247.130.11:2005',
-}
-
-
-# "proxy": "23.247.130.11:2005"
 
 
 class Fake:
@@ -37,6 +30,12 @@ class Fake:
 
     def get_phone_number(self):
         return self.fake.phone_number()
+
+
+def get_proxy():
+    url = 'http://api.tq.roxlabs.cn/getProxyIp?num=1&return_type=txt&lb=1&sb=&flow=1&regions=&protocol=http'
+    result = requests.get(url).text
+    return result
 
 
 def generate_random_string():
@@ -58,33 +57,43 @@ def write_text(account, password):
 
 
 def cap_solver():
+    result = ''
+    proxis = get_proxy()
+    ip = proxis.split(":")[0]
+    port = proxis.split(":")[1]
     payload = {
         "clientKey": api_key,
         "task": {
             "type": "FunCaptchaTask",
             "websiteURL": "https://iframe.arkoselabs.com",
             "websitePublicKey": "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA",
-            "proxy": "43.159.28.105:19086"
+            "proxyType": "https",
+            "proxyAddress": str(ip),
+            "proxyPort": int(port),
         }
     }
-    res = requests.post("https://api.capsolver.com/createTask", json=payload, proxies=proxies)
+    res = requests.post("https://api.capsolver.com/createTask", json=payload, )
     resp = res.json()
     task_id = resp.get("taskId")
     if not task_id:
-        print("Failed to create task:", res.text)
-        return
+        result = "Failed to create task:", res.text
+        print(result)
+        return str(result)
     print(f"Got taskId: {task_id} / Getting result...")
     while True:
         time.sleep(1)  # delay
         payload = {"clientKey": api_key, "taskId": task_id}
-        res = requests.post("https://api.capsolver.com/getTaskResult", json=payload, proxies=proxies)
+        res = requests.post("https://api.capsolver.com/getTaskResult", json=payload, )
         resp = res.json()
         status = resp.get("status")
         if status == "ready":
-            return resp.get("solution", {}).get('token')
+            result = resp.get("solution", {}).get('token')
+            print(result)
+            return str(result)
         if status == "failed" or resp.get("errorId"):
-            a = "Solve failed! response:" + res.text
-            return a
+            result = "Solve failed! response:" + res.text
+            print(result)
+            return str(result)
 
 
 def wait_by_id(id_name, click, send_keys, content):
@@ -97,10 +106,12 @@ def wait_by_id(id_name, click, send_keys, content):
                 time.sleep(1)
                 target.send_keys(content)
     except selenium.common.exceptions.TimeoutException:
-        print("无法找到ID:", id_name)
+        print("无法找到ID:", id_name, '正在退出脚本')
+        exit()
 
 
 def register():
+    token = ''
     a = Fake()
     name = a.get_name().split(" ")
     first_name, last_name = name[0], name[1]
@@ -117,18 +128,26 @@ def register():
     wait_by_id(id_name='LastName', click=True, send_keys=True, content=last_name)
     wait_by_id(id_name='FirstName', click=True, send_keys=True, content=first_name)
     wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
-    wait_by_id(id_name='BirthYear', click=True, send_keys=True, content=random.randint(1990, 2005))
+    random_birth_year = random.randint(1990, 2005)
+    wait_by_id(id_name='BirthYear', click=True, send_keys=True, content=random_birth_year)
     wait_by_id(id_name='BirthMonthContainer', click=True, send_keys=False, content=None)
     birth_month_container = Select(driver.find_element(By.ID, 'BirthMonth'))
-    birth_month_container.select_by_index(random.randint(1, 12))
+    random_birth_month = random.randint(1, 12)
+    birth_month_container.select_by_index(random_birth_month)
     wait_by_id(id_name='BirthDayContainer', click=True, send_keys=False, content=None)
     birth_day_container = Select(driver.find_element(By.ID, 'BirthDay'))
-    birth_day_container.select_by_index(random.randint(1, 28))
+    random_birth_day = random.randint(1, 28)
+    birth_day_container.select_by_index(random_birth_day)
+    if random_birth_month < 10:
+        random_birth_month = str(0 + random_birth_month)
+    if random_birth_day < 10:
+        random_birth_day = str(0 + random_birth_day)
+    birth = str(random_birth_year) + "---" + str(random_birth_month) + "---" + str(random_birth_day)
+    print("随机生日为：" + birth)
     wait_by_id(id_name='iSignupAction', click=True, send_keys=False, content=None)
     WebDriverWait(driver, 100).until(EC.presence_of_element_located((By.ID, 'HipEnforcement')))
     ifram = driver.find_element(By.ID, 'enforcementFrame')
     driver.switch_to.frame(ifram)
-    # wait_by_id(id_name='game-core-frame', click=False, send_keys=False, content=None)
     # 以上为注册常规步骤 以下为获取以及提交token
     print("正在向capsolver发送请求")
     token = cap_solver()
@@ -157,8 +176,7 @@ def register():
         time.sleep(1)
         no.click()
         f = open(r'C:\Users\admin\Desktop\register\account.txt', 'a+')
-        f.write(account + '---')
-        f.write(password + '\r')
+        f.write(account + '---' + password + '---' + first_name + '---' + last_name + '---' + str(birth) + '\r')
         print('账号：', account, '已成功注册，已写入文件')
         os.system('taskkill /f /im %s' % 'chrome.exe')
     except TimeoutError:
@@ -167,5 +185,3 @@ def register():
 
 
 register()
-token = cap_solver()
-print(token)
